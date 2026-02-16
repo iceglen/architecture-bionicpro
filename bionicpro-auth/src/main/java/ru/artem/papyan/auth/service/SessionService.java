@@ -1,5 +1,6 @@
 package ru.artem.papyan.auth.service;
 
+import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -175,7 +176,7 @@ public class SessionService {
         }
     }
     
-    @lombok.Data
+    @Data
     private static class SessionMetadata {
         private LocalDateTime createdAt;
         private int requestCount;

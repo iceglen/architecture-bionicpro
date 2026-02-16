@@ -18,14 +18,31 @@ public class TokenRequest {
     private String redirectUri;
     
     public static TokenRequest forPassword(String clientId, String clientSecret, String username, String password) {
-        return new TokenRequest("password", clientId, clientSecret, username, password, null, null, null);
+        TokenRequest request = new TokenRequest();
+        request.setGrantType("password");
+        request.setClientId(clientId);
+        request.setClientSecret(clientSecret);
+        request.setUsername(username);
+        request.setPassword(password);
+        return request;
     }
     
     public static TokenRequest forRefreshToken(String clientId, String clientSecret, String refreshToken) {
-        return new TokenRequest("refresh_token", clientId, clientSecret, null, null, refreshToken, null, null);
+        TokenRequest request = new TokenRequest();
+        request.setGrantType("refresh_token");
+        request.setClientId(clientId);
+        request.setClientSecret(clientSecret);
+        request.setRefreshToken(refreshToken);
+        return request;
     }
     
     public static TokenRequest forAuthorizationCode(String clientId, String clientSecret, String code, String redirectUri) {
-        return new TokenRequest("authorization_code", clientId, clientSecret, null, null, null, code, redirectUri);
+        TokenRequest request = new TokenRequest();
+        request.setGrantType("authorization_code");
+        request.setClientId(clientId);
+        request.setClientSecret(clientSecret);
+        request.setCode(code);
+        request.setRedirectUri(redirectUri);
+        return request;
     }
 }
