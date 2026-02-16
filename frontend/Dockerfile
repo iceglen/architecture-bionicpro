@@ -3,8 +3,14 @@ FROM node:16-alpine as build
 
 WORKDIR /app
 
+# Set environment variables to ignore certificate errors
+ENV NODE_TLS_REJECT_UNAUTHORIZED=0
+
 # Copy package files
 COPY package.json package-lock.json ./
+
+# Configure npm to ignore certificate errors
+RUN npm config set strict-ssl false
 
 # Install dependencies
 RUN npm ci

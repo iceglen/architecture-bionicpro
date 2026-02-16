@@ -1,0 +1,1 @@
+{"columns":[{"kind":"Sparse","name":"event_date","num_defaults":353,"num_rows":353},{"kind":"Default","name":"event_time","num_defaults":0,"num_rows":353},{"kind":"Default","name":"value","num_defaults":158,"num_rows":353}],"types_serialization_versions":{"string":1},"version":1}

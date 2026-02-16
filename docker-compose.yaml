@@ -39,9 +39,9 @@ services:
     depends_on:
       - keycloak_db
 
-  auth-api:
+  bionicpro-auth:
     build:
-      context: ./auth-api
+      context: ./bionicpro-auth
       dockerfile: Dockerfile
     ports:
       - "8081:8081"
@@ -73,12 +73,12 @@ services:
       - "3000:3000"
     environment:
       REACT_APP_API_URL: http://localhost:8000
-      REACT_APP_AUTH_API_URL: http://auth-api:8081
+      REACT_APP_AUTH_API_URL: http://bionicpro-auth:8081
       REACT_APP_KEYCLOAK_URL: http://localhost:8080
       REACT_APP_KEYCLOAK_REALM: reports-realm
       REACT_APP_KEYCLOAK_CLIENT_ID: reports-frontend
     depends_on:
-      - auth-api
+      - bionicpro-auth
 
   openldap:
     image: osixia/openldap:1.5.0
