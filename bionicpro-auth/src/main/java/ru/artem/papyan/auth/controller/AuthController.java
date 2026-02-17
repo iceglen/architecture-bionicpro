@@ -10,6 +10,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 import ru.artem.papyan.auth.service.SessionService;
 
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -22,12 +23,12 @@ public class AuthController {
     private final SessionService sessionService;
     
     @GetMapping("/login")
-    public ResponseEntity<Void> login() {
-        // Этот endpoint используется Spring Security OAuth2 для перенаправления на Keycloak
-        // Фактическая аутентификация происходит через OAuth2 flow
-        return ResponseEntity.ok().build();
+    public void login(HttpServletRequest request, HttpServletResponse response) throws IOException {
+        // Redirect to Spring Security's OAuth2 authorization endpoint
+        // This initiates the OAuth2 flow with Keycloak
+        response.sendRedirect("/oauth2/authorization/keycloak");
     }
-    
+
     @PostMapping("/logout")
     public ResponseEntity<Void> logout(HttpServletRequest request, HttpServletResponse response) {
         // Получаем sessionId из cookie

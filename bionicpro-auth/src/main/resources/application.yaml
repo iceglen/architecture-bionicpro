@@ -14,17 +14,17 @@ spring:
             client-name: Keycloak
         provider:
           keycloak:
-            issuer-uri: http://localhost:8080/realms/reports-realm
+            issuer-uri: http://keycloak:8080/realms/reports-realm
             user-name-attribute: preferred_username
-  
+
   session:
     redis:
       namespace: auth-api:sessions
     timeout: 1800  # 30 минут - больше чем access token (2 минуты)
-  
+
   data:
     redis:
-      host: localhost
+      host: redis
       port: 6379
       timeout: 2000ms
 
@@ -48,7 +48,7 @@ auth:
       salt: "salt-value-456"
 
 keycloak:
-  auth-server-url: http://localhost:8080
+  auth-server-url: http://keycloak:8080
   realm: reports-realm
   resource: auth-api-client
   credentials:

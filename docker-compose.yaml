@@ -36,7 +36,7 @@ services:
       - start-dev
       - --import-realm
     volumes:
-      - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json
+      - ./keycloak/keycloak-results-export.json:/opt/keycloak/data/import/realm-export.json
     ports:
       - "8080:8080"
     depends_on:
@@ -51,6 +51,7 @@ services:
     build:
       context: ./bionicpro-auth
       dockerfile: Dockerfile
+    container_name: auth-api
     ports:
       - "8081:8081"
     environment:
@@ -60,6 +61,7 @@ services:
       KEYCLOAK_REALM: reports-realm
       KEYCLOAK_RESOURCE: auth-api-client
       KEYCLOAK_CREDENTIALS_SECRET: auth-api-secret-1234567890
+      KEYCLOAK_REDIRECT_URI: http://auth-api:8081/login/oauth2/code/keycloak
       FRONTEND_URL: http://frontend:3000
       SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_KEYCLOAK_CLIENT_ID: auth-api-client
       SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_KEYCLOAK_CLIENT_SECRET: auth-api-secret-1234567890
@@ -83,9 +85,9 @@ services:
     ports:
       - "3000:3000"
     environment:
-      REACT_APP_API_URL: http://localhost:8000
-      REACT_APP_AUTH_API_URL: http://bionicpro-auth:8081
-      REACT_APP_KEYCLOAK_URL: http://localhost:8080
+      REACT_APP_API_URL: http://reports-api:8000
+      REACT_APP_AUTH_API_URL: http://auth-api:8081
+      REACT_APP_KEYCLOAK_URL: http://keycloak:8080
       REACT_APP_KEYCLOAK_REALM: reports-realm
       REACT_APP_KEYCLOAK_CLIENT_ID: reports-frontend
     depends_on:

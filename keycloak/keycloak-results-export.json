@@ -144,6 +144,25 @@
       "clientAuthenticatorType": "client-secret",
       "secret": "oNwoLQdvJAvRcL89SydqCWCe5ry1jMgq",
       "bearerOnly": true
+    },
+    {
+      "clientId": "auth-api-client",
+      "enabled": true,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "auth-api-secret-1234567890",
+      "redirectUris": ["http://localhost:8081/login/oauth2/code/keycloak", "http://auth-api:8081/login/oauth2/code/keycloak"],
+      "webOrigins": ["http://localhost:8081", "http://auth-api:8081"],
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "authorizationServicesEnabled": false,
+      "attributes": {
+        "client.secret.creation.time": "0",
+        "backchannel.logout.session.required": "true",
+        "use.refresh.tokens": "true",
+        "client.use.lightweight.access.token.enabled": "false"
+      }
     }
   ]
 }
