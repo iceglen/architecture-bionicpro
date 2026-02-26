@@ -1,18 +1,25 @@
-version: '3.8'
-
 services:
   keycloak_db:
     image: postgres:14
+    container_name: keycloak_db
     environment:
       POSTGRES_DB: keycloak_db
       POSTGRES_USER: keycloak_user
       POSTGRES_PASSWORD: keycloak_password
     volumes:
-      - ./postgres-keycloak-data:/var/lib/postgresql/data
+      - postgres_keycloak_data:/var/lib/postgresql/data
     ports:
       - "5433:5432"
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U keycloak_user -d keycloak_db" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
   keycloak:
-    image: quay.io/keycloak/keycloak:21.1
+    image: quay.io/keycloak/keycloak:26.5
+    container_name: keycloak
     environment:
       KEYCLOAK_ADMIN: admin
       KEYCLOAK_ADMIN_PASSWORD: admin
@@ -20,7 +27,8 @@ services:
       KC_DB_URL: jdbc:postgresql://keycloak_db:5432/keycloak_db
       KC_DB_USERNAME: keycloak_user
       KC_DB_PASSWORD: keycloak_password
-    command: 
+      KC_LOG_LEVEL: "DEBUG,org.keycloak.broker:TRACE"
+    command:
       - start-dev
       - --import-realm
     volumes:
@@ -28,15 +36,271 @@ services:
     ports:
       - "8080:8080"
     depends_on:
-      - keycloak_db
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    ports:
-      - "3000:3000"
+      keycloak_db:
+        condition: service_healthy
+      openldap:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/8080' >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  openldap:
+    image: osixia/openldap:1.5.0
+    container_name: openldap
+    command: --copy-service
+    volumes:
+      - ./ldap/config.ldif:/container/service/slapd/assets/config/bootstrap/ldif/50-bootstrap.ldif
     environment:
-      REACT_APP_API_URL: http://localhost:8000
-      REACT_APP_KEYCLOAK_URL: http://localhost:8080
-      REACT_APP_KEYCLOAK_REALM: reports-realm
-      REACT_APP_KEYCLOAK_CLIENT_ID: reports-frontend
+      - LDAP_ORGANISATION=example-com
+      - LDAP_DOMAIN=example.com
+      - LDAP_ADMIN_PASSWORD=admin
+    ports:
+      - "389:389"
+      - "636:636"
+    healthcheck:
+      test: [ "CMD-SHELL", "ldapsearch -x -H ldap://localhost:389 -b dc=example,dc=com -D 'cn=admin,dc=example,dc=com' -w admin" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  crm_db:
+    image: postgres:14
+    container_name: crm_db
+    environment:
+      POSTGRES_DB: crm_db
+      POSTGRES_USER: crm_user
+      POSTGRES_PASSWORD: crm_password
+    command: postgres -c wal_level=logical -c max_replication_slots=10 -c max_wal_senders=10
+    volumes:
+        - ./crm-db:/docker-entrypoint-initdb.d
+        - postgres_crm_data:/var/lib/postgresql/data
+    ports:
+      - "5444:5432"
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U crm_user -d crm_db" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    container_name: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    volumes:
+      - zookeeper_data:/var/lib/zookeeper/data
+      - zookeeper_log:/var/lib/zookeeper/log
+
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: kafka
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:9093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    ports:
+      - "9093:9093"
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    healthcheck:
+      test: [ "CMD-SHELL", "kafka-topics --bootstrap-server kafka:9092 --list" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  debezium-connect:
+    image: debezium/connect:2.5
+    container_name: debezium-connect
+    depends_on:
+      - kafka
+      - crm_db
+    environment:
+      BOOTSTRAP_SERVERS: kafka:9092
+      GROUP_ID: 1
+      CONFIG_STORAGE_TOPIC: connect_configs
+      OFFSET_STORAGE_TOPIC: connect_offsets
+      STATUS_STORAGE_TOPIC: connect_status
+      KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      ENABLE_DEBEZIUM_SCRIPTING: "true"
+    ports:
+      - "8083:8083"
+    restart: on-failure
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -f http://localhost:8083/connectors" ]
+      interval: 30s
+      timeout: 30s
+      retries: 10
+      start_period: 60s
+
+  debezium-connector-init:
+    image: curlimages/curl:latest
+    container_name: debezium-connector-init
+    depends_on:
+      debezium-connect:
+        condition: service_healthy
+    volumes:
+      - ./debezium-connectors:/scripts
+    working_dir: /scripts
+    command: [ "/bin/sh", "-c", "echo 'Ожидание Debezium Connect...'; until curl -f http://debezium-connect:8083/connectors; do sleep 5; done; echo 'Регистрация коннектора...'; curl -X POST -H 'Content-Type: application/json' --data @crm-connector.json http://debezium-connect:8083/connectors; echo 'Коннектор зарегистрирован'" ]
+
+  olap_db:
+    image: clickhouse/clickhouse-server:26.1
+    container_name: olap_db
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8123:8123"
+      - "9431:9000"
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - ./olap-db:/docker-entrypoint-initdb.d
+      - ./olap-db:/var/lib/clickhouse/user_files
+      - ./olap-db/users.xml:/etc/clickhouse-server/users.d/users.xml
+      - ./olap-db/logging.xml:/etc/clickhouse-server/config.d/logging.xml
+    healthcheck:
+      test: ["CMD-SHELL", "clickhouse-client --query 'SELECT 1'"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  minio:
+    image: minio/minio
+    container_name: minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_storage:/data
+    environment:
+      MINIO_ROOT_USER: minio_user
+      MINIO_ROOT_PASSWORD: minio_password
+    command: server --console-address ":9001" /data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  cdn-nginx:
+    build:
+      context: ./nginx-cdn
+      dockerfile: Dockerfile
+    container_name: cdn-nginx
+    ports:
+      - "8888:80"
+    depends_on:
+      minio:
+        condition: service_healthy
+    volumes:
+      - nginx_cache:/var/cache/nginx/s3_cache
+    networks:
+      - default
+
+  airflow-init:
+    build:
+      context: ./
+      dockerfile: ./dag/Dockerfile
+    container_name: airflow-init
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow_user:airflow_password@airflow_db:5432/airflow_db
+      AIRFLOW__CORE__FERNET_KEY: ''
+      AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+    entrypoint: >
+      bash -c "airflow db init && airflow users create --username admin --firstname Admin --lastname Admin --role Admin --email admin@example.com --password admin"
+    depends_on:
+      airflow_db:
+        condition: service_healthy
+
+  airflow_db:
+    image: postgres:14
+    container_name: airflow_db
+    environment:
+      POSTGRES_DB: airflow_db
+      POSTGRES_USER: airflow_user
+      POSTGRES_PASSWORD: airflow_password
+    volumes:
+      - postgres_airflow_data:/var/lib/postgresql/data
+    ports:
+      - "5445:5432"
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U airflow_user -d airflow_db" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  airflow-webserver:
+    build:
+      context: ./
+      dockerfile: ./dag/Dockerfile
+    container_name: airflow-webserver
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow_user:airflow_password@airflow_db:5432/airflow_db
+      AIRFLOW__CORE__FERNET_KEY: ''
+      AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+    volumes:
+      - ./dag:/opt/airflow/dags
+      - airflow_logs:/opt/airflow/logs
+    ports:
+      - "8081:8080"
+    command: airflow webserver
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+      crm_db:
+        condition: service_healthy
+      olap_db:
+        condition: service_healthy
+
+  airflow-scheduler:
+    build:
+      context: .
+      dockerfile: ./dag/Dockerfile
+    container_name: airflow-scheduler
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow_user:airflow_password@airflow_db:5432/airflow_db
+      AIRFLOW__CORE__FERNET_KEY: ''
+      AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+    volumes:
+      - ./dag:/opt/airflow/dags
+      - airflow_logs:/opt/airflow/logs
+    command: airflow scheduler
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+      crm_db:
+        condition: service_healthy
+      olap_db:
+        condition: service_healthy
+
+volumes:
+  minio_storage: {}
+  redis_data: {}
+  postgres_keycloak_data: {}
+  postgres_crm_data: {}
+  clickhouse_data: {}
+  airflow_logs: {}
+  postgres_airflow_data: {}
+  nginx_cache: {}
+  zookeeper_data: { }
+  zookeeper_log: { }
+  kafka_data: { }
